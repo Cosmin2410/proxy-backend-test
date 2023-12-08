@@ -6,6 +6,9 @@ import (
 	"os"
 	"time"
 
+	"proxy-backend-test/src/handler"
+	"proxy-backend-test/src/model"
+
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/limiter"
 	"github.com/joho/godotenv"
@@ -13,27 +16,27 @@ import (
 	"gorm.io/gorm"
 )
 
-type ProxyLog struct {
-	gorm.Model
-	Request  string `json:"request"`
-	Response string `json:"response"`
-}
-
 var db *gorm.DB
 
 func main() {
-	godotenv.Load()
-	app := fiber.New()
-
-	dsn := fmt.Sprintf("postgresql://cosmin:%s@dapper-ape-12047.8nj.cockroachlabs.cloud:26257/%s?sslmode=verify-full", os.Getenv("SQL_USER_PASSWORD"), os.Getenv("DATABASE_NAME"))
-
-	var err error
-	db, err = gorm.Open(postgres.Open(dsn), &gorm.Config{})
+	err := godotenv.Load("../.env")
 	if err != nil {
-		log.Fatal("failed to connect database", err)
+		log.Fatal("Error loading .env file")
 	}
 
-	err = db.AutoMigrate(&ProxyLog{})
+	app := fiber.New()
+
+	dsn := fmt.Sprintf(
+		"postgresql://cosmin:%s@dapper-ape-12047.8nj.cockroachlabs.cloud:26257/%s?sslmode=verify-full",
+		os.Getenv("SQL_USER_PASSWORD"),
+		os.Getenv("DATABASE_NAME"),
+	)
+
+	if db, err = gorm.Open(postgres.Open(dsn), &gorm.Config{}); err != nil {
+		log.Fatal("Failed to connect database", err)
+	}
+
+	err = db.AutoMigrate(&model.ProxyLog{})
 	if err != nil {
 		log.Fatal("Auto migrate failed", err)
 	}
@@ -50,7 +53,8 @@ func main() {
 		},
 	}))
 
-	app.All("/*", reverseProxyHandler)
+	h := &handler.Handler{DB: db}
+	app.All("/*", h.ReverseProxyHandler)
 
 	log.Fatal(app.Listen(":8080"))
 }

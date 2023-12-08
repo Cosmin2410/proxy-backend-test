@@ -2,7 +2,7 @@ package helper
 
 import "encoding/json"
 
-func addRandomAttribute(data []byte) ([]byte, error) {
+func AddRandomAttribute(data []byte) ([]byte, error) {
 	var jsonData interface{}
 
 	err := json.Unmarshal(data, &jsonData)

@@ -1,4 +1,4 @@
-module proxy
+module proxy-backend-test
 
 go 1.21.4
 

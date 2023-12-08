@@ -7,10 +7,18 @@ import (
 	"net/http/httputil"
 	"net/url"
 
+	"proxy-backend-test/src/helper"
+	"proxy-backend-test/src/model"
+
 	"github.com/gofiber/fiber/v2"
+	"gorm.io/gorm"
 )
 
-func reverseProxyHandler(c *fiber.Ctx) error {
+type Handler struct {
+	DB *gorm.DB
+}
+
+func (h *Handler) ReverseProxyHandler(c *fiber.Ctx) error {
 	target := "https://jsonplaceholder.typicode.com" + c.OriginalURL()
 
 	rpURL, err := url.Parse(target)
@@ -18,15 +26,15 @@ func reverseProxyHandler(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusInternalServerError).SendString("Error in parsing target URL")
 	}
 
-	frontendProxy := httptest.NewServer(&httputil.ReverseProxy{
+	reverseProxy := httptest.NewServer(&httputil.ReverseProxy{
 		Rewrite: func(r *httputil.ProxyRequest) {
 			r.SetXForwarded()
 			r.SetURL(rpURL)
 		},
 	})
-	defer frontendProxy.Close()
+	defer reverseProxy.Close()
 
-	resp, err := http.Get(frontendProxy.URL)
+	resp, err := http.Get(reverseProxy.URL)
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).SendString("Error fetching data from target")
 	}
@@ -47,16 +55,19 @@ func reverseProxyHandler(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusUnsupportedMediaType).SendString("Response is not JSON")
 	}
 
-	modifiedJSON, err := addRandomAttribute(body)
+	modifiedJSON, err := helper.AddRandomAttribute(body)
 	if err != nil {
 		return c.Status(fiber.StatusInternalServerError).SendString("Failed to modify JSON response")
 	}
 
-	logEntry := ProxyLog{
+	logEntry := model.ProxyLog{
 		Request:  requestURL,
 		Response: string(modifiedJSON),
 	}
-	db.Create(&logEntry)
+
+	if err := h.DB.Create(&logEntry).Error; err != nil {
+		return c.Status(fiber.StatusInternalServerError).SendString("Error creating new entry in db")
+	}
 
 	_, err = c.Write(modifiedJSON)
 	if err != nil {
