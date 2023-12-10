@@ -7,18 +7,18 @@ import (
 	"net/http/httputil"
 	"net/url"
 
-	"proxy-backend-test/src/helper"
-	"proxy-backend-test/src/model"
+	"github.com/Cosmin2410/proxy-backend-test/src/helper"
+	"github.com/Cosmin2410/proxy-backend-test/src/model"
 
 	"github.com/gofiber/fiber/v2"
 	"gorm.io/gorm"
 )
 
-type Handler struct {
+type DBCreate struct {
 	DB *gorm.DB
 }
 
-func (h *Handler) ReverseProxyHandler(c *fiber.Ctx) error {
+func (h *DBCreate) ReverseProxyHandler(c *fiber.Ctx) error {
 	target := "https://jsonplaceholder.typicode.com" + c.OriginalURL()
 
 	rpURL, err := url.Parse(target)
@@ -60,7 +60,7 @@ func (h *Handler) ReverseProxyHandler(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusInternalServerError).SendString("Failed to modify JSON response")
 	}
 
-	logEntry := model.ProxyLog{
+	logEntry := model.SaveLog{
 		Request:  requestURL,
 		Response: string(modifiedJSON),
 	}
