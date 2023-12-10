@@ -6,8 +6,8 @@ import (
 	"os"
 	"time"
 
-	"proxy-backend-test/src/handler"
-	"proxy-backend-test/src/model"
+	"github.com/Cosmin2410/proxy-backend-test/src/handler"
+	"github.com/Cosmin2410/proxy-backend-test/src/model"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/limiter"
@@ -36,7 +36,7 @@ func main() {
 		log.Fatal("Failed to connect database", err)
 	}
 
-	err = db.AutoMigrate(&model.ProxyLog{})
+	err = db.AutoMigrate(&model.SaveLog{})
 	if err != nil {
 		log.Fatal("Auto migrate failed", err)
 	}
@@ -49,11 +49,11 @@ func main() {
 		Max:        5,
 		Expiration: 60 * time.Second,
 		LimitReached: func(c *fiber.Ctx) error {
-			return c.SendFile("./ratelimit.html")
+			return c.SendFile("../ratelimit.html")
 		},
 	}))
 
-	h := &handler.Handler{DB: db}
+	h := &handler.DBCreate{DB: db}
 	app.All("/*", h.ReverseProxyHandler)
 
 	log.Fatal(app.Listen(":8080"))

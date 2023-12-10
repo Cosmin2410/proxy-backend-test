@@ -2,7 +2,7 @@ package model
 
 import "gorm.io/gorm"
 
-type ProxyLog struct {
+type SaveLog struct {
 	gorm.Model
 	Request  string `json:"request"`
 	Response string `json:"response"`
