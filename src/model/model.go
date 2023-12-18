@@ -1,6 +1,15 @@
 package model
 
-import "gorm.io/gorm"
+import (
+	"time"
+
+	"gorm.io/gorm"
+)
+
+type RateLimitInfo struct {
+	RequestCount int
+	StartTime    time.Time
+}
 
 type SaveLog struct {
 	gorm.Model

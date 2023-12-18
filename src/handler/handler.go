@@ -1,16 +1,16 @@
 package handler
 
 import (
+	"bytes"
+	"errors"
+	"fmt"
 	"io"
 	"net/http"
-	"net/http/httptest"
-	"net/http/httputil"
-	"net/url"
+	"strings"
 
 	"github.com/Cosmin2410/proxy-backend-test/src/helper"
 	"github.com/Cosmin2410/proxy-backend-test/src/model"
-
-	"github.com/gofiber/fiber/v2"
+	"github.com/andybalholm/brotli"
 	"gorm.io/gorm"
 )
 
@@ -18,61 +18,44 @@ type DBCreate struct {
 	DB *gorm.DB
 }
 
-func (h *DBCreate) ReverseProxyHandler(c *fiber.Ctx) error {
-	target := "https://jsonplaceholder.typicode.com" + c.OriginalURL()
+func (h *DBCreate) ModifyResponse() func(*http.Response) error {
+	return func(resp *http.Response) error {
+		if !strings.Contains(resp.Header.Get("Content-Type"), "application/json") {
+			return errors.New("content not json")
+		}
 
-	rpURL, err := url.Parse(target)
-	if err != nil {
-		return c.Status(fiber.StatusInternalServerError).SendString("Error in parsing target URL")
+		if resp.StatusCode != http.StatusOK {
+			return fmt.Errorf("status code no OK, received status: %v", resp.StatusCode)
+		}
+
+		reader := brotli.NewReader(resp.Body)
+
+		body, err := io.ReadAll(reader)
+		if err != nil {
+			return fmt.Errorf("error reading the body: %v", err)
+		}
+		resp.Body.Close()
+
+		resp.Header.Del("Content-Encoding")
+		resp.Header.Del("Transfer-Encoding")
+
+		modifiedJSON, err := helper.AddRandomAttribute(body)
+		if err != nil {
+			return errors.New("failed to modify JSON response")
+		}
+
+		logEntry := model.SaveLog{
+			Request:  resp.Request.URL.String(),
+			Response: string(modifiedJSON),
+		}
+
+		result := h.DB.Create(&logEntry)
+		if result.Error != nil {
+			return errors.New("failed to log in db request/response")
+		}
+
+		resp.Body = io.NopCloser(bytes.NewBuffer(modifiedJSON))
+
+		return nil
 	}
-
-	reverseProxy := httptest.NewServer(&httputil.ReverseProxy{
-		Rewrite: func(r *httputil.ProxyRequest) {
-			r.SetXForwarded()
-			r.SetURL(rpURL)
-		},
-	})
-	defer reverseProxy.Close()
-
-	resp, err := http.Get(reverseProxy.URL)
-	if err != nil {
-		return c.Status(fiber.StatusInternalServerError).SendString("Error fetching data from target")
-	}
-	if resp.StatusCode != http.StatusOK {
-		return c.Status(fiber.StatusBadGateway).SendString("Status code from target not OK")
-	}
-
-	contentType := resp.Header.Get("Content-Type")
-
-	requestURL := c.OriginalURL()
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return c.Status(fiber.StatusInternalServerError).SendString("Error reading response body")
-	}
-
-	if contentType != "application/json; charset=utf-8" {
-		return c.Status(fiber.StatusUnsupportedMediaType).SendString("Response is not JSON")
-	}
-
-	modifiedJSON, err := helper.AddRandomAttribute(body)
-	if err != nil {
-		return c.Status(fiber.StatusInternalServerError).SendString("Failed to modify JSON response")
-	}
-
-	logEntry := model.SaveLog{
-		Request:  requestURL,
-		Response: string(modifiedJSON),
-	}
-
-	if err := h.DB.Create(&logEntry).Error; err != nil {
-		return c.Status(fiber.StatusInternalServerError).SendString("Error creating new entry in db")
-	}
-
-	_, err = c.Write(modifiedJSON)
-	if err != nil {
-		return c.Status(fiber.StatusInternalServerError).SendString("Error writing modified JSON response")
-	}
-
-	return nil
 }

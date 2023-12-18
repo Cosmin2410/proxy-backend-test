@@ -3,14 +3,15 @@ package main
 import (
 	"fmt"
 	"log"
+	"net/http"
+	"net/http/httputil"
+	"net/url"
 	"os"
-	"time"
 
 	"github.com/Cosmin2410/proxy-backend-test/src/handler"
+	"github.com/Cosmin2410/proxy-backend-test/src/limit"
 	"github.com/Cosmin2410/proxy-backend-test/src/model"
 
-	"github.com/gofiber/fiber/v2"
-	"github.com/gofiber/fiber/v2/middleware/limiter"
 	"github.com/joho/godotenv"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
@@ -24,15 +25,10 @@ func main() {
 		log.Fatal("Error loading .env file")
 	}
 
-	app := fiber.New()
+	dsn := os.Getenv("SQL_DATABASE_PASSWORD")
 
-	dsn := fmt.Sprintf(
-		"postgresql://cosmin:%s@dapper-ape-12047.8nj.cockroachlabs.cloud:26257/%s?sslmode=verify-full",
-		os.Getenv("SQL_USER_PASSWORD"),
-		os.Getenv("DATABASE_NAME"),
-	)
-
-	if db, err = gorm.Open(postgres.Open(dsn), &gorm.Config{}); err != nil {
+	db, err = gorm.Open(postgres.Open(dsn), &gorm.Config{})
+	if err != nil {
 		log.Fatal("Failed to connect database", err)
 	}
 
@@ -41,20 +37,50 @@ func main() {
 		log.Fatal("Auto migrate failed", err)
 	}
 
-	app.Get("/", func(c *fiber.Ctx) error {
-		return c.SendString("Hello Tibi, reverse-proxy is up!")
-	})
+	proxy, err := NewProxy("https://jsonplaceholder.typicode.com")
+	if err != nil {
+		panic(err)
+	}
 
-	app.Use(limiter.New(limiter.Config{
-		Max:        5,
-		Expiration: 60 * time.Second,
-		LimitReached: func(c *fiber.Ctx) error {
-			return c.SendFile("../ratelimit.html")
-		},
-	}))
+	http.Handle("/", limit.RateLimiter(ProxyRequestHandler(proxy)))
+	log.Fatal(http.ListenAndServe(":8080", nil))
+}
+
+func NewProxy(targetHost string) (*httputil.ReverseProxy, error) {
+	url, err := url.Parse(targetHost)
+	if err != nil {
+		return nil, err
+	}
+
+	proxy := httputil.NewSingleHostReverseProxy(url)
+
+	originalDirector := proxy.Director
+	proxy.Director = func(req *http.Request) {
+		req.Host = req.URL.Host
+		originalDirector(req)
+		modifyRequest(req)
+	}
 
 	h := &handler.DBCreate{DB: db}
-	app.All("/*", h.ReverseProxyHandler)
+	proxy.ModifyResponse = h.ModifyResponse()
+	proxy.ErrorHandler = errorHandler()
+	return proxy, nil
+}
 
-	log.Fatal(app.Listen(":8080"))
+func ProxyRequestHandler(proxy *httputil.ReverseProxy) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		proxy.ServeHTTP(w, r)
+	})
+}
+
+func modifyRequest(req *http.Request) {
+	req.Header.Del("If-Modified-Since")
+	req.Header.Del("If-None-Match")
+}
+
+func errorHandler() func(http.ResponseWriter, *http.Request, error) {
+	return func(w http.ResponseWriter, req *http.Request, err error) {
+		fmt.Printf("Got error while modifying response: %v \n", err)
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+	}
 }
