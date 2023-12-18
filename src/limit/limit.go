@@ -1,7 +1,6 @@
 package limit
 
 import (
-	"fmt"
 	"net/http"
 	"time"
 
@@ -13,8 +12,6 @@ func RateLimiter(handler http.Handler) http.Handler {
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		ip := r.RemoteAddr
-
-		fmt.Println(ip)
 
 		if info, exists := rateLimitMap[ip]; exists {
 			if time.Since(info.StartTime) > 10*time.Second {
